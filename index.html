@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Buku Menu - 2 Putri Snacks</title>
+  <style>
+    /* =========================================
+       1. MOBILE-FIRST BASE (Default: HP Potret)
+       ========================================= */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #141416;
+      color: #f4f4f5;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      height: 100svh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 10px 54px;
+    }
+
+    #book-canvas {
+      display: block;
+      touch-action: pan-y;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.28s ease;
+    }
+
+    #book-canvas.ready {
+      opacity: 1;
+    }
+
+    /* Tombol panah ringkas untuk layar HP */
+    .nav-arrow {
+      position: fixed;
+      top: calc(50% - 20px);
+      transform: translateY(-50%);
+      z-index: 50;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      background: rgba(20, 20, 22, 0.62);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      touch-action: manipulation;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      transition: opacity 0.2s ease, transform 0.15s ease, background-color 0.2s ease;
+    }
+
+    .nav-arrow svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .nav-arrow:active {
+      transform: translateY(-50%) scale(0.9);
+      background: rgba(20, 20, 22, 0.9);
+    }
+
+    .nav-arrow.disabled {
+      opacity: 0.2;
+      pointer-events: none;
+    }
+
+    #prev-btn { left: 8px; }
+    #next-btn { right: 8px; }
+
+    /* Indikator nomor halaman bawah */
+    .page-indicator {
+      position: fixed;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 40;
+      padding: 5px 14px;
+      border-radius: 999px;
+      background: rgba(20, 20, 22, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      color: #e4e4e7;
+      white-space: nowrap;
+    }
+
+    .loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      color: #a1a1aa;
+      z-index: 30;
+      transition: opacity 0.25s ease;
+    }
+
+    .loader.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* =========================================
+       2. DESKTOP & TABLET LANDSCAPE (>= 768px)
+       ========================================= */
+    @media (min-width: 768px) and (orientation: landscape) {
+      .stage {
+        padding: 24px 76px 60px;
+      }
+
+      .nav-arrow {
+        top: calc(50% - 18px);
+        width: 48px;
+        height: 48px;
+      }
+
+      .nav-arrow svg {
+        width: 22px;
+        height: 22px;
+      }
+
+      .nav-arrow:hover {
+        background: rgba(20, 20, 22, 0.88);
+        border-color: rgba(255, 255, 255, 0.38);
+      }
+
+      #prev-btn { left: 20px; }
+      #next-btn { right: 20px; }
+
+      .page-indicator {
+        bottom: 18px;
+        padding: 6px 18px;
+        font-size: 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="loader" id="loader">Memuat buku menu...</div>
+
+  <button id="prev-btn" class="nav-arrow disabled" type="button" aria-label="Halaman Sebelumnya">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 18 9 12 15 6"></polyline>
+    </svg>
+  </button>
+
+  <main class="stage">
+    <canvas id="book-canvas"></canvas>
+  </main>
+
+  <button id="next-btn" class="nav-arrow" type="button" aria-label="Halaman Selanjutnya">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </button>
+
+  <div class="page-indicator" id="page-info">1 / 12</div>
+
+  <script>
+    const TOTAL_PAGES = 12;
+    const IMAGE_SOURCES = Array.from({ length: TOTAL_PAGES }, (_, i) => `${i + 1}.webp`);
+
+    const canvas = document.getElementById('book-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const pageInfo = document.getElementById('page-info');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const loader = document.getElementById('loader');
+
+    const images = new Array(TOTAL_PAGES).fill(null);
+    let pageAspectRatio = 450 / 636;
+    let currentPage = 0; // Index halaman 0..11
+    let isDesktop = false;
+    let pageW = 320;
+    let pageH = 452;
+
+    let anim = null;
+    let drag = null;
+
+    function isDesktopSpread() {
+      return window.innerWidth >= 768 && window.innerWidth > window.innerHeight;
+    }
+
+    function easeInOutCubic(t) {
+      return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    function easeOutQuart(t) {
+      return 1 - Math.pow(1 - t, 4);
+    }
+
+    async function preloadImages() {
+      const tasks = IMAGE_SOURCES.map((src, idx) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = src;
+          img.onload = async () => {
+            if (idx === 0 && img.naturalWidth && img.naturalHeight) {
+              pageAspectRatio = img.naturalWidth / img.naturalHeight;
+            }
+            if (img.decode) {
+              try { await img.decode(); } catch (_) {}
+            }
+            images[idx] = img;
+            resolve();
+          };
+          img.onerror = () => resolve();
+        });
+      });
+      await Promise.all(tasks);
+    }
+
+    function resizeCanvas() {
+      isDesktop = isDesktopSpread();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+
+      if (isDesktop) {
+        const maxSingleW = (vw - 152) / 2;
+        const maxH = vh - 84;
+        pageH = Math.floor(Math.min(maxH, maxSingleW / pageAspectRatio));
+        pageW = Math.floor(pageH * pageAspectRatio);
+
+        if (currentPage > 0 && currentPage % 2 === 0) {
+          currentPage = Math.max(1, currentPage - 1);
+        }
+
+        canvas.style.width = `${pageW * 2}px`;
+        canvas.style.height = `${pageH}px`;
+        canvas.width = Math.round(pageW * 2 * dpr);
+        canvas.height = Math.round(pageH * dpr);
+      } else {
+        const maxW = vw - 20;
+        const maxH = vh - 66;
+        pageH = Math.floor(Math.min(maxH, maxW / pageAspectRatio));
+        pageW = Math.floor(pageH * pageAspectRatio);
+
+        canvas.style.width = `${pageW}px`;
+        canvas.style.height = `${pageH}px`;
+        canvas.width = Math.round(pageW * dpr);
+        canvas.height = Math.round(pageH * dpr);
+      }
+
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      updateUI();
+      render();
+    }
+
+    function updateUI() {
+      const activePage = anim ? anim.toPage : currentPage;
+
+      if (isDesktop) {
+        if (activePage === 0) {
+          pageInfo.textContent = `1 / ${TOTAL_PAGES}`;
+          prevBtn.classList.add('disabled');
+          nextBtn.classList.remove('disabled');
+        } else {
+          const leftNum = activePage + 1;
+          const rightNum = Math.min(activePage + 2, TOTAL_PAGES);
+          pageInfo.textContent = leftNum === rightNum
+            ? `${leftNum} / ${TOTAL_PAGES}`
+            : `${leftNum}–${rightNum} / ${TOTAL_PAGES}`;
+          prevBtn.classList.toggle('disabled', activePage <= 0);
+          nextBtn.classList.toggle('disabled', activePage + 2 >= TOTAL_PAGES);
+        }
+      } else {
+        pageInfo.textContent = `${activePage + 1} / ${TOTAL_PAGES}`;
+        prevBtn.classList.toggle('disabled', activePage <= 0);
+        nextBtn.classList.toggle('disabled', activePage >= TOTAL_PAGES - 1);
+      }
+    }
+
+    function clipPolygon(poly, cosA, sinA, d, keepGreater) {
+      const out = [];
+      for (let i = 0; i < poly.length; i++) {
+        const cur = poly[i];
+        const prev = poly[(i + poly.length - 1) % poly.length];
+        const curVal = cur.x * cosA + cur.y * sinA - d;
+        const prevVal = prev.x * cosA + prev.y * sinA - d;
+        const curIn = keepGreater ? curVal >= 0 : curVal <= 0;
+        const prevIn = keepGreater ? prevVal >= 0 : prevVal <= 0;
+
+        if (curIn !== prevIn) {
+          const t = prevVal / (prevVal - curVal);
+          out.push({
+            x: prev.x + (cur.x - prev.x) * t,
+            y: prev.y + (cur.y - prev.y) * t
+          });
+        }
+        if (curIn) out.push(cur);
+      }
+      return out;
+    }
+
+    function tracePoly(poly) {
+      ctx.beginPath();
+      ctx.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(poly[i].x, poly[i].y);
+      }
+      ctx.closePath();
+    }
+
+    // =====================================================
+    // RENDER 1: MOBILE SINGLE-PAGE CURL (Jilid Kiri)
+    // =====================================================
+    function drawMobilePageCurl(topImg, bottomImg, w, h, t) {
+      if (bottomImg) {
+        ctx.drawImage(bottomImg, 0, 0, w, h);
+      } else {
+        ctx.fillStyle = '#1f1f23';
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      if (t <= 0.0005) {
+        if (topImg) ctx.drawImage(topImg, 0, 0, w, h);
+        return;
+      }
+      if (t >= 0.9995) return;
+
+      const alpha = 0.26 * Math.pow(1 - t, 2);
+      const cosA = Math.cos(alpha);
+      const sinA = Math.sin(alpha);
+      const d = h * sinA + (1 - t) * w * cosA;
+
+      const rect = [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h }
+      ];
+
+      const unpeeledPoly = clipPolygon(rect, cosA, sinA, d, false);
+      const peeledPoly = clipPolygon(rect, cosA, sinA, d, true);
+
+      if (peeledPoly.length >= 3) {
+        ctx.save();
+        tracePoly(peeledPoly);
+        ctx.clip();
+        const shadowSpan = Math.min(72, w * 0.26);
+        const grad = ctx.createLinearGradient(
+          d * cosA, d * sinA,
+          (d + shadowSpan) * cosA, (d + shadowSpan) * sinA
+        );
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0.44)');
+        grad.addColorStop(0.28, 'rgba(0, 0, 0, 0.18)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+
+      if (unpeeledPoly.length >= 3 && topImg) {
+        ctx.save();
+        tracePoly(unpeeledPoly);
+        ctx.clip();
+        ctx.drawImage(topImg, 0, 0, w, h);
+
+        const preSpan = 16;
+        const preGrad = ctx.createLinearGradient(
+          (d - preSpan) * cosA, (d - preSpan) * sinA,
+          d * cosA, d * sinA
+        );
+        preGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        preGrad.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
+        ctx.fillStyle = preGrad;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+
+      if (peeledPoly.length >= 3) {
+        const reflectedPoly = peeledPoly.map((p) => {
+          const s = p.x * cosA + p.y * sinA - d;
+          return { x: p.x - 2 * s * cosA, y: p.y - 2 * s * sinA };
+        });
+
+        ctx.save();
+        tracePoly(reflectedPoly);
+        ctx.clip();
+
+        ctx.fillStyle = '#f5f0ea';
+        ctx.fillRect(-w, -h, w * 3, h * 3);
+
+        if (topImg) {
+          ctx.save();
+          ctx.translate(d * cosA, d * sinA);
+          ctx.rotate(alpha);
+          ctx.scale(-1, 1);
+          ctx.rotate(-alpha);
+          ctx.translate(-d * cosA, -d * sinA);
+          ctx.globalAlpha = 0.18;
+          ctx.drawImage(topImg, 0, 0, w, h);
+          ctx.restore();
+        }
+
+        const curlWidth = Math.min(64, w * 0.24);
+        const curlGrad = ctx.createLinearGradient(
+          d * cosA, d * sinA,
+          (d - curlWidth) * cosA, (d - curlWidth) * sinA
+        );
+        curlGrad.addColorStop(0, 'rgba(0, 0, 0, 0.22)');
+        curlGrad.addColorStop(0.18, 'rgba(255, 255, 255, 0.42)');
+        curlGrad.addColorStop(0.55, 'rgba(255, 255, 255, 0.08)');
+        curlGrad.addColorStop(1, 'rgba(0, 0, 0, 0.08)');
+        ctx.fillStyle = curlGrad;
+        ctx.fillRect(-w, -h, w * 3, h * 3);
+        ctx.restore();
+      }
+
+      const spineGrad = ctx.createLinearGradient(0, 0, 14, 0);
+      spineGrad.addColorStop(0, 'rgba(0, 0, 0, 0.22)');
+      spineGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = spineGrad;
+      ctx.fillRect(0, 0, 14, h);
+    }
+
+    // =====================================================
+    // RENDER 2: DESKTOP 2-PAGE SPREAD (Sisi Balik Kertas = Halaman Kiri Baru)
+    // =====================================================
+    function drawDesktopHalf(img, x, w, h, isLeft) {
+      if (!img) return;
+      ctx.drawImage(img, x, 0, w, h);
+      const creaseW = 24;
+      const crease = isLeft
+        ? ctx.createLinearGradient(x + w - creaseW, 0, x + w, 0)
+        : ctx.createLinearGradient(x, 0, x + creaseW, 0);
+      crease.addColorStop(0, isLeft ? 'rgba(0,0,0,0)' : 'rgba(0,0,0,0.26)');
+      crease.addColorStop(1, isLeft ? 'rgba(0,0,0,0.26)' : 'rgba(0,0,0,0)');
+      ctx.fillStyle = crease;
+      ctx.fillRect(isLeft ? x + w - creaseW : x, 0, creaseW, h);
+    }
+
+    function drawDesktopSpreadCurl(baseLeft, baseRight, sheetFront, sheetBack, w, h, t) {
+      ctx.save();
+      // Geser titik nol (0,0) tepat ke lipatan tengah buku (spine)
+      // Kiri = [-w, 0], Kanan = [0, w]
+      ctx.translate(w, 0);
+
+      // 1. Halaman kiri dasar (di bawah lembar yang terlipat)
+      drawDesktopHalf(baseLeft, -w, w, h, true);
+
+      // 2. Halaman kanan dasar (terbuka saat lembar kanan terkelupas)
+      drawDesktopHalf(baseRight, 0, w, h, false);
+
+      if (t <= 0.0005) {
+        drawDesktopHalf(sheetFront, 0, w, h, false);
+        ctx.restore();
+        return;
+      }
+
+      if (t >= 0.9995) {
+        drawDesktopHalf(sheetBack, -w, w, h, true);
+        ctx.restore();
+        return;
+      }
+
+      // Garis lipatan selalu terikat di spine x = 0 (tidak pernah lepas dari tengah buku)
+      const alpha = 0.24 * Math.pow(1 - t, 1.9);
+      const cosA = Math.cos(alpha);
+      const sinA = Math.sin(alpha);
+      const d = h * sinA + (1 - t) * w * cosA;
+
+      const rightRect = [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h }
+      ];
+
+      const unpeeledPoly = clipPolygon(rightRect, cosA, sinA, d, false);
+      const peeledPoly = clipPolygon(rightRect, cosA, sinA, d, true);
+
+      // 3. Bayangan jatuh dari lipatan ke atas baseRight (halaman kanan baru)
+      if (peeledPoly.length >= 3 && baseRight) {
+        ctx.save();
+        tracePoly(peeledPoly);
+        ctx.clip();
+
+        const shadowSpan = Math.min(84, w * 0.28);
+        const grad = ctx.createLinearGradient(
+          d * cosA, d * sinA,
+          (d + shadowSpan) * cosA, (d + shadowSpan) * sinA
+        );
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
+        grad.addColorStop(0.3, 'rgba(0, 0, 0, 0.16)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+
+      // 4. Bagian sheetFront yang masih rata di sisi kanan
+      if (unpeeledPoly.length >= 3 && sheetFront) {
+        ctx.save();
+        tracePoly(unpeeledPoly);
+        ctx.clip();
+        drawDesktopHalf(sheetFront, 0, w, h, false);
+
+        const preSpan = 18;
+        const preGrad = ctx.createLinearGradient(
+          (d - preSpan) * cosA, (d - preSpan) * sinA,
+          d * cosA, d * sinA
+        );
+        preGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        preGrad.addColorStop(1, 'rgba(0, 0, 0, 0.14)');
+        ctx.fillStyle = preGrad;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+
+      // 5. Flap lembar yang terlipat (menampilkan sheetBack dengan orientasi normal & tajam)
+      if (peeledPoly.length >= 3) {
+        const reflectedPoly = peeledPoly.map((p) => {
+          const s = p.x * cosA + p.y * sinA - d;
+          return { x: p.x - 2 * s * cosA, y: p.y - 2 * s * sinA };
+        });
+
+        // Bayangan lembut lembar terlipat di atas baseLeft
+        if (baseLeft) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(-w, 0, w, h);
+          ctx.clip();
+          ctx.translate(-8 * (1 - t), 4 * (1 - t));
+          tracePoly(reflectedPoly);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+          ctx.fill();
+          ctx.restore();
+        }
+
+        ctx.save();
+        tracePoly(reflectedPoly);
+        ctx.clip();
+
+        ctx.fillStyle = '#1f1f23';
+        ctx.fillRect(-w, -h, w * 2, h * 3);
+
+        // Gambar halaman balik (sheetBack) tepat mengikuti bidang cermin lipatan
+        if (sheetBack) {
+          ctx.save();
+          ctx.translate(d * cosA, d * sinA);
+          ctx.rotate(alpha);
+          ctx.scale(-1, 1);
+          ctx.rotate(-alpha);
+          ctx.translate(-d * cosA, -d * sinA);
+
+          ctx.translate(w, 0);
+          ctx.scale(-1, 1);
+          drawDesktopHalf(sheetBack, 0, w, h, true);
+          ctx.restore();
+        }
+
+        // Efek lengkungan cahaya silinder kertas pada garis lipatan
+        const curlWidth = Math.min(72, w * 0.25);
+        const curlGrad = ctx.createLinearGradient(
+          d * cosA, d * sinA,
+          (d - curlWidth) * cosA, (d - curlWidth) * sinA
+        );
+        curlGrad.addColorStop(0, 'rgba(0, 0, 0, 0.25)');
+        curlGrad.addColorStop(0.14, 'rgba(255, 255, 255, 0.24)');
+        curlGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.04)');
+        curlGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = curlGrad;
+        ctx.fillRect(-w, -h, w * 2, h * 3);
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
+    function render() {
+      const totalW = isDesktop ? pageW * 2 : pageW;
+      ctx.fillStyle = '#141416';
+      ctx.fillRect(0, 0, totalW, pageH);
+
+      const activeState = anim || drag;
+
+      if (!isDesktop) {
+        if (!activeState) {
+          drawMobilePageCurl(images[currentPage], null, pageW, pageH, 0);
+        } else if (activeState.dir === 'next') {
+          drawMobilePageCurl(images[currentPage], images[currentPage + 1], pageW, pageH, activeState.progress);
+        } else {
+          drawMobilePageCurl(images[currentPage - 1], images[currentPage], pageW, pageH, activeState.progress);
+        }
+        return;
+      }
+
+      const getSpread = (idx) => {
+        if (idx === 0) return [null, images[0]];
+        return [images[idx] || null, images[idx + 1] || null];
+      };
+
+      if (!activeState) {
+        const [leftImg, rightImg] = getSpread(currentPage);
+        drawDesktopSpreadCurl(leftImg, null, rightImg, null, pageW, pageH, 0);
+        return;
+      }
+
+      if (activeState.dir === 'next') {
+        const nextBase = currentPage === 0 ? 1 : currentPage + 2;
+        const [curL, curR] = getSpread(currentPage);
+        const [nxtL, nxtR] = getSpread(nextBase);
+        drawDesktopSpreadCurl(curL, nxtR, curR, nxtL, pageW, pageH, activeState.progress);
+      } else {
+        const prevBase = currentPage <= 1 ? 0 : currentPage - 2;
+        const [prvL, prvR] = getSpread(prevBase);
+        const [curL, curR] = getSpread(currentPage);
+        drawDesktopSpreadCurl(prvL, curR, prvR, curL, pageW, pageH, activeState.progress);
+      }
+    }
+
+    function startAnimation(dir, toPage, startProgress, endProgress, duration = 460, isCancel = false) {
+      anim = {
+        dir,
+        toPage: isCancel ? currentPage : toPage,
+        startProgress,
+        endProgress,
+        startTime: performance.now(),
+        duration,
+        isCancel
+      };
+      updateUI();
+      requestAnimationFrame(tickAnimation);
+    }
+
+    function tickAnimation(now) {
+      if (!anim) return;
+      const elapsed = now - anim.startTime;
+      const rawT = Math.min(1, elapsed / anim.duration);
+      const eased = anim.isCancel ? easeOutQuart(rawT) : easeInOutCubic(rawT);
+      anim.progress = anim.startProgress + (anim.endProgress - anim.startProgress) * eased;
+
+      render();
+
+      if (rawT < 1) {
+        requestAnimationFrame(tickAnimation);
+      } else {
+        if (!anim.isCancel) {
+          currentPage = anim.toPage;
+        }
+        anim = null;
+        updateUI();
+        render();
+      }
+    }
+
+    function goNext() {
+      if (drag) return;
+      if (anim) {
+        if (!anim.isCancel && Math.abs(anim.progress - anim.endProgress) < 0.4) {
+          currentPage = anim.toPage;
+          anim = null;
+        } else {
+          return;
+        }
+      }
+
+      if (isDesktop) {
+        const nextIdx = currentPage === 0 ? 1 : currentPage + 2;
+        if (nextIdx >= TOTAL_PAGES) return;
+        startAnimation('next', nextIdx, 0, 1, 520, false);
+      } else {
+        if (currentPage >= TOTAL_PAGES - 1) return;
+        startAnimation('next', currentPage + 1, 0, 1, 440, false);
+      }
+    }
+
+    function goPrev() {
+      if (drag) return;
+      if (anim) {
+        if (!anim.isCancel && Math.abs(anim.progress - anim.endProgress) < 0.4) {
+          currentPage = anim.toPage;
+          anim = null;
+        } else {
+          return;
+        }
+      }
+
+      if (isDesktop) {
+        if (currentPage <= 0) return;
+        const prevIdx = currentPage <= 1 ? 0 : currentPage - 2;
+        startAnimation('prev', prevIdx, 1, 0, 520, false);
+      } else {
+        if (currentPage <= 0) return;
+        startAnimation('prev', currentPage - 1, 1, 0, 440, false);
+      }
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (anim) return;
+      drag = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        lastX: e.clientX,
+        lastTime: performance.now(),
+        vx: 0,
+        dir: null,
+        progress: 0,
+        locked: false
+      };
+      canvas.setPointerCapture(e.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+
+      const now = performance.now();
+      const dx = e.clientX - drag.startX;
+      const dy = e.clientY - drag.startY;
+      const dt = Math.max(1, now - drag.lastTime);
+      drag.vx = (e.clientX - drag.lastX) / dt;
+      drag.lastX = e.clientX;
+      drag.lastTime = now;
+
+      if (!drag.locked) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          drag = null;
+          return;
+        }
+
+        if (dx < 0) {
+          const canNext = isDesktop
+            ? (currentPage === 0 ? 1 : currentPage + 2) < TOTAL_PAGES
+            : currentPage < TOTAL_PAGES - 1;
+          if (!canNext) { drag = null; return; }
+          drag.dir = 'next';
+        } else {
+          if (currentPage <= 0) { drag = null; return; }
+          drag.dir = 'prev';
+        }
+        drag.locked = true;
+      }
+
+      const travelDist = isDesktop ? pageW * 1.15 : pageW * 0.78;
+      if (drag.dir === 'next') {
+        drag.progress = Math.max(0, Math.min(1, -dx / travelDist));
+      } else {
+        drag.progress = Math.max(0, Math.min(1, 1 - dx / travelDist));
+      }
+
+      render();
+    });
+
+    function finishDrag(e) {
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const d = drag;
+      drag = null;
+
+      if (!d.locked) return;
+
+      if (d.dir === 'next') {
+        const target = isDesktop ? (currentPage === 0 ? 1 : currentPage + 2) : currentPage + 1;
+        const shouldCommit = d.progress > 0.24 || d.vx < -0.35;
+        const remDuration = Math.max(180, Math.round(440 * (shouldCommit ? 1 - d.progress : d.progress)));
+        startAnimation('next', target, d.progress, shouldCommit ? 1 : 0, remDuration, !shouldCommit);
+      } else {
+        const target = isDesktop ? (currentPage <= 1 ? 0 : currentPage - 2) : currentPage - 1;
+        const shouldCommit = d.progress < 0.76 || d.vx > 0.35;
+        const remDuration = Math.max(180, Math.round(440 * (shouldCommit ? d.progress : 1 - d.progress)));
+        startAnimation('prev', target, d.progress, shouldCommit ? 0 : 1, remDuration, !shouldCommit);
+      }
+    }
+
+    canvas.addEventListener('pointerup', finishDrag);
+    canvas.addEventListener('pointercancel', finishDrag);
+
+    prevBtn.addEventListener('click', goPrev);
+    nextBtn.addEventListener('click', goNext);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') goPrev();
+      if (e.key === 'ArrowRight') goNext();
+    });
+
+    let resizeTimer = null;
+    let lastWidth = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (Math.abs(window.innerWidth - lastWidth) > 24 || isDesktopSpread() !== isDesktop) {
+          lastWidth = window.innerWidth;
+          resizeCanvas();
+        }
+      }, 150);
+    });
+
+    preloadImages().then(() => {
+      loader.classList.add('hidden');
+      lastWidth = window.innerWidth;
+      resizeCanvas();
+      canvas.classList.add('ready');
+    });
+  </script>
+</body>
+</html>
